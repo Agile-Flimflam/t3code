@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 
 import {
@@ -51,8 +52,19 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-claude-probe-sdk-" });
       const executablePath = path.join(tempDir, "fake-claude.mjs");
       const invocationPath = path.join(tempDir, "invocation.json");
-      const workspaceCwd = path.join(tempDir, "workspace");
-      yield* fs.makeDirectory(workspaceCwd, { recursive: true });
+      // The probe aborts the SDK without awaiting the child's exit, and on
+      // Windows a directory that is still some process's cwd cannot be
+      // removed. Keep the workspace outside the scoped directory and let it
+      // go with a retrying removal once the child has gone.
+      const workspaceCwd = yield* fs.makeTempDirectory({ prefix: "t3-claude-probe-cwd-" });
+      yield* Effect.addFinalizer(() =>
+        fs
+          .remove(workspaceCwd, { recursive: true, force: true })
+          .pipe(
+            Effect.retry({ times: 10, schedule: Schedule.spaced("100 millis") }),
+            Effect.ignore,
+          ),
+      );
 
       yield* fs.writeFileString(
         executablePath,
@@ -103,6 +115,10 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "    });",
           "  }",
           "});",
+          // Exit as soon as the probe closes stdin. The probe aborts the SDK
+          // without awaiting the child's exit, and a child still holding
+          // this cwd blocks the temp directory's removal on Windows.
+          'lines.on("close", () => process.exit(0));',
           "setInterval(() => {}, 1_000);",
           "",
         ].join("\n"),
