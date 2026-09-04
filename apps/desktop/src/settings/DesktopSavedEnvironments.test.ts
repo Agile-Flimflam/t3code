@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
@@ -433,6 +434,7 @@ describe("DesktopSavedEnvironments", () => {
   it.effect("reports the failed saved environment write operation and path", () =>
     Effect.gen(function* () {
       const baseFileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const baseDir = yield* baseFileSystem.makeTempDirectoryScoped({
         prefix: "t3-desktop-saved-environments-test-",
       });
@@ -456,7 +458,7 @@ describe("DesktopSavedEnvironments", () => {
       const error = yield* savedEnvironments.setRegistry([savedRegistryRecord]).pipe(Effect.flip);
       assert.instanceOf(error, DesktopSavedEnvironments.DesktopSavedEnvironmentsWriteError);
       assert.equal(error.operation, "create-directory");
-      assert.equal(error.path, `${baseDir}/userdata`);
+      assert.equal(error.path, path.join(baseDir, "userdata"));
       assert.strictEqual(error.cause, permissionError);
       assert.equal(
         error.message,
