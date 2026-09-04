@@ -13,6 +13,7 @@ import {
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
+import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 const decodeCodexSettingsValue = Schema.decodeSync(CodexSettings);
 
 const decodeCodexSettings = (input: {
@@ -84,54 +85,59 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
   });
 
   describe("materializeCodexShadowHome", () => {
-    it.effect("materializes a shadow home with shared state links and private auth", () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const sharedHome = yield* makeTempDir("t3code-codex-shared-");
-        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
-        const shadowHome = path.join(shadowRoot, "shadow");
+    it.effect.skipIf(!symlinksSupported)(
+      "materializes a shadow home with shared state links and private auth",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
 
-        yield* fileSystem.makeDirectory(path.join(sharedHome, "sessions"));
-        yield* writeTextFile(path.join(sharedHome, "config.toml"), 'model = "gpt-5-codex"\n');
-        yield* writeTextFile(path.join(sharedHome, "models_cache.json"), '{"models":["shared"]}\n');
-        yield* writeTextFile(path.join(sharedHome, "auth.json"), '{"shared":true}\n');
-        yield* fileSystem.makeDirectory(shadowHome, { recursive: true });
-        yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
-        yield* fileSystem.symlink(
-          path.join(sharedHome, "models_cache.json"),
-          path.join(shadowHome, "models_cache.json"),
-        );
+          yield* fileSystem.makeDirectory(path.join(sharedHome, "sessions"));
+          yield* writeTextFile(path.join(sharedHome, "config.toml"), 'model = "gpt-5-codex"\n');
+          yield* writeTextFile(
+            path.join(sharedHome, "models_cache.json"),
+            '{"models":["shared"]}\n',
+          );
+          yield* writeTextFile(path.join(sharedHome, "auth.json"), '{"shared":true}\n');
+          yield* fileSystem.makeDirectory(shadowHome, { recursive: true });
+          yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
+          yield* fileSystem.symlink(
+            path.join(sharedHome, "models_cache.json"),
+            path.join(shadowHome, "models_cache.json"),
+          );
 
-        const layout = yield* resolveCodexHomeLayout(
-          decodeCodexSettings({
-            homePath: sharedHome,
-            shadowHomePath: shadowHome,
-          }),
-        );
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+              shadowHomePath: shadowHome,
+            }),
+          );
 
-        yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexShadowHome(layout);
 
-        const sessionsTarget = yield* fileSystem.readLink(path.join(shadowHome, "sessions"));
-        const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
-        const mcpOauthLocksTarget = yield* fileSystem.readLink(
-          path.join(shadowHome, "mcp-oauth-locks"),
-        );
-        const modelsCacheExists = yield* fileSystem.exists(
-          path.join(shadowHome, "models_cache.json"),
-        );
-        const authLinkResult = yield* fileSystem
-          .readLink(path.join(shadowHome, "auth.json"))
-          .pipe(Effect.result);
-        const authContents = yield* fileSystem.readFileString(path.join(shadowHome, "auth.json"));
+          const sessionsTarget = yield* fileSystem.readLink(path.join(shadowHome, "sessions"));
+          const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
+          const mcpOauthLocksTarget = yield* fileSystem.readLink(
+            path.join(shadowHome, "mcp-oauth-locks"),
+          );
+          const modelsCacheExists = yield* fileSystem.exists(
+            path.join(shadowHome, "models_cache.json"),
+          );
+          const authLinkResult = yield* fileSystem
+            .readLink(path.join(shadowHome, "auth.json"))
+            .pipe(Effect.result);
+          const authContents = yield* fileSystem.readFileString(path.join(shadowHome, "auth.json"));
 
-        expect(sessionsTarget).toBe(path.join(sharedHome, "sessions"));
-        expect(configTarget).toBe(path.join(sharedHome, "config.toml"));
-        expect(mcpOauthLocksTarget).toBe(path.join(sharedHome, "mcp-oauth-locks"));
-        expect(modelsCacheExists).toBe(false);
-        expect(authLinkResult._tag).toBe("Failure");
-        expect(authContents).toContain("shadow");
-      }),
+          expect(sessionsTarget).toBe(path.join(sharedHome, "sessions"));
+          expect(configTarget).toBe(path.join(sharedHome, "config.toml"));
+          expect(mcpOauthLocksTarget).toBe(path.join(sharedHome, "mcp-oauth-locks"));
+          expect(modelsCacheExists).toBe(false);
+          expect(authLinkResult._tag).toBe("Failure");
+          expect(authContents).toContain("shadow");
+        }),
     );
 
     it.effect("replaces Codex-created local MCP OAuth locks with the shared lock directory", () =>
