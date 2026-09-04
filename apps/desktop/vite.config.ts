@@ -1,3 +1,4 @@
+import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
@@ -83,4 +84,7 @@ export default defineConfig({
       entry: ["src/preview-pip-preload.ts"],
     },
   ],
+  test: {
+    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+  },
 });
